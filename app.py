@@ -338,7 +338,7 @@ def test_api():
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     print("="*50)
-    print("✅ Server is ready!")
+    print(f"✅ Server is ready!")
     print(f"📍 Local URL: http://localhost:{port}")
     print(f"💾 Database: {'✅ Connected' if app.db is not None else '❌ Disconnected'}")
     print("📝 Auth endpoints: /api/auth/register, /api/auth/login")
