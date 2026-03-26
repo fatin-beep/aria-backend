@@ -164,7 +164,7 @@ def generate_report_with_gemini(query):
             return get_fallback_report(query)
         
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-pro')
         
         # Market Analysis
         market_prompt = f"""You are a market research expert. Analyze this market: {query}
