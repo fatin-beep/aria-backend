@@ -8,8 +8,10 @@ import jwt
 from passlib.hash import pbkdf2_sha256
 from user import User
 from bson import ObjectId
-import google.generativeai as genai
 import json
+
+# NEW: Import the updated Google GenAI package
+from google import genai
 
 # Load environment variables
 load_dotenv()
@@ -47,13 +49,14 @@ except Exception as e:
 def register():
     """Register a new user"""
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         email = data.get('email')
         password = data.get('password')
-        display_name = data.get('displayName', email.split('@')[0])
         
         if not email or not password:
             return jsonify({'success': False, 'message': 'Email and password required'}), 400
+        
+        display_name = data.get('displayName') or email.split('@')[0]
         
         existing = app.users_collection.find_one({'email': email})
         if existing:
@@ -91,7 +94,7 @@ def register():
 def login():
     """Login existing user"""
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         email = data.get('email')
         password = data.get('password')
         
@@ -154,84 +157,6 @@ def extract_json(text):
     except:
         return {}
 
-def generate_report_with_gemini(query):
-    """Generate report using Google Gemini AI"""
-    try:
-        api_key = os.getenv('GEMINI_API_KEY')
-        
-        if not api_key:
-            print("❌ GEMINI_API_KEY not found")
-            return get_fallback_report(query)
-        
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        
-        # Market Analysis
-        market_prompt = f"""You are a market research expert. Analyze this market: {query}
-        Return ONLY JSON in this exact format:
-        {{
-            "market_size": "estimate with context",
-            "growth_trends": ["trend1", "trend2", "trend3"],
-            "opportunities": ["opp1", "opp2", "opp3"],
-            "risks": ["risk1", "risk2", "risk3"],
-            "key_insight": "most important insight"
-        }}"""
-        
-        market_response = model.generate_content(market_prompt)
-        market_data = extract_json(market_response.text)
-        
-        # Competitor Analysis
-        competitor_prompt = f"""You are a competitive analyst. Identify competitors for: {query}
-        Return ONLY JSON in this exact format:
-        {{
-            "competitors": [
-                {{"name": "name", "strength": "strength", "weakness": "weakness", "position": "position"}}
-            ],
-            "gaps": ["gap1", "gap2"],
-            "differentiation": "how to stand out"
-        }}"""
-        
-        competitor_response = model.generate_content(competitor_prompt)
-        competitor_data = extract_json(competitor_response.text)
-        
-        # Audience Profile
-        audience_prompt = f"""You are a consumer psychologist. Profile audience for: {query}
-        Return ONLY JSON in this exact format:
-        {{
-            "demographics": {{"age_range": "", "location": "", "income": "", "profession": ""}},
-            "psychographics": {{"values": [], "motivations": [], "aspirations": []}},
-            "pain_points": [],
-            "buying_behavior": {{"discovery": [], "evaluation": [], "purchase": []}}
-        }}"""
-        
-        audience_response = model.generate_content(audience_prompt)
-        audience_data = extract_json(audience_response.text)
-        
-        # Content Strategy
-        content_prompt = f"""You are a content strategist. Create strategy for: {query}
-        Return ONLY JSON in this exact format:
-        {{
-            "platforms": ["platform1", "platform2"],
-            "content_pillars": ["pillar1", "pillar2", "pillar3"],
-            "post_ideas": ["idea1", "idea2", "idea3", "idea4", "idea5"],
-            "tone_of_voice": "description",
-            "content_mix": {{"video": "40%", "carousel": "30%", "short_form": "30%"}}
-        }}"""
-        
-        content_response = model.generate_content(content_prompt)
-        content_data = extract_json(content_response.text)
-        
-        return {
-            "market": market_data,
-            "competitors": competitor_data,
-            "audience": audience_data,
-            "content": content_data
-        }
-        
-    except Exception as e:
-        print(f"Gemini API error: {e}")
-        return get_fallback_report(query)
-
 def get_fallback_report(query):
     """Fallback report when Gemini fails"""
     return {
@@ -263,6 +188,96 @@ def get_fallback_report(query):
             "content_mix": {"video": "40%", "carousel": "30%", "short_form": "30%"}
         }
     }
+
+def generate_report_with_gemini(query):
+    """Generate report using Google Gemini AI (new google-genai package)"""
+    try:
+        api_key = os.getenv('GEMINI_API_KEY')
+        
+        if not api_key:
+            print("❌ GEMINI_API_KEY not found")
+            return get_fallback_report(query)
+        
+        # NEW: Using the updated google.genai package
+        client = genai.Client(api_key=api_key)
+        
+        # Market Analysis
+        market_prompt = f"""You are a market research expert. Analyze this market: {query}
+        Return ONLY JSON in this exact format:
+        {{
+            "market_size": "estimate with context",
+            "growth_trends": ["trend1", "trend2", "trend3"],
+            "opportunities": ["opp1", "opp2", "opp3"],
+            "risks": ["risk1", "risk2", "risk3"],
+            "key_insight": "most important insight"
+        }}"""
+        
+        market_response = client.models.generate_content(
+            model='gemini-2.0-flash-exp',
+            contents=market_prompt
+        )
+        market_data = extract_json(market_response.text)
+        
+        # Competitor Analysis
+        competitor_prompt = f"""You are a competitive analyst. Identify competitors for: {query}
+        Return ONLY JSON in this exact format:
+        {{
+            "competitors": [
+                {{"name": "name", "strength": "strength", "weakness": "weakness", "position": "position"}}
+            ],
+            "gaps": ["gap1", "gap2"],
+            "differentiation": "how to stand out"
+        }}"""
+        
+        competitor_response = client.models.generate_content(
+            model='gemini-2.0-flash-exp',
+            contents=competitor_prompt
+        )
+        competitor_data = extract_json(competitor_response.text)
+        
+        # Audience Profile
+        audience_prompt = f"""You are a consumer psychologist. Profile audience for: {query}
+        Return ONLY JSON in this exact format:
+        {{
+            "demographics": {{"age_range": "", "location": "", "income": "", "profession": ""}},
+            "psychographics": {{"values": [], "motivations": [], "aspirations": []}},
+            "pain_points": [],
+            "buying_behavior": {{"discovery": [], "evaluation": [], "purchase": []}}
+        }}"""
+        
+        audience_response = client.models.generate_content(
+            model='gemini-2.0-flash-exp',
+            contents=audience_prompt
+        )
+        audience_data = extract_json(audience_response.text)
+        
+        # Content Strategy
+        content_prompt = f"""You are a content strategist. Create strategy for: {query}
+        Return ONLY JSON in this exact format:
+        {{
+            "platforms": ["platform1", "platform2"],
+            "content_pillars": ["pillar1", "pillar2", "pillar3"],
+            "post_ideas": ["idea1", "idea2", "idea3", "idea4", "idea5"],
+            "tone_of_voice": "description",
+            "content_mix": {{"video": "40%", "carousel": "30%", "short_form": "30%"}}
+        }}"""
+        
+        content_response = client.models.generate_content(
+            model='gemini-2.0-flash-exp',
+            contents=content_prompt
+        )
+        content_data = extract_json(content_response.text)
+        
+        return {
+            "market": market_data,
+            "competitors": competitor_data,
+            "audience": audience_data,
+            "content": content_data
+        }
+        
+    except Exception as e:
+        print(f"Gemini API error: {e}")
+        return get_fallback_report(query)
 
 # ============= REPORT ENDPOINTS =============
 
@@ -411,12 +426,12 @@ def test_api():
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
-    print("="*50)
+    print("=" * 50)
     print(f"✅ Server is ready!")
     print(f"📍 Local URL: http://localhost:{port}")
     print(f"💾 Database: {'✅ Connected' if app.db is not None else '❌ Disconnected'}")
     print("📝 Auth endpoints: /api/auth/register, /api/auth/login")
     print("📝 Reports endpoints: /api/reports/generate, /api/reports, /api/reports/:id")
-    print("🤖 Gemini AI: Enabled")
-    print("="*50)
+    print("🤖 Gemini AI: Enabled (google-genai package)")
+    print("=" * 50)
     app.run(debug=True, host='0.0.0.0', port=port)
