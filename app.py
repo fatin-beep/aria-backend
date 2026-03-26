@@ -8,6 +8,8 @@ import jwt
 from passlib.hash import pbkdf2_sha256
 from user import User
 from bson import ObjectId
+import google.generativeai as genai
+import json
 
 # Load environment variables
 load_dotenv()
@@ -28,7 +30,6 @@ try:
         app.db = None
     else:
         print("✅ Found MONGODB_URI in .env file")
-        # Connect to MongoDB
         client = MongoClient(mongodb_uri)
         db = client.get_database('aria_db')
         app.db = db
@@ -54,19 +55,14 @@ def register():
         if not email or not password:
             return jsonify({'success': False, 'message': 'Email and password required'}), 400
         
-        # Check if user exists
         existing = app.users_collection.find_one({'email': email})
         if existing:
             return jsonify({'success': False, 'message': 'User already exists'}), 400
         
-        # Hash password
         password_hash = pbkdf2_sha256.hash(password)
-        
-        # Create user
         new_user = User(email, password_hash, display_name)
         result = app.users_collection.insert_one(new_user.to_dict())
         
-        # Create token
         token = jwt.encode(
             {
                 'user_id': str(result.inserted_id),
@@ -102,13 +98,11 @@ def login():
         if not email or not password:
             return jsonify({'success': False, 'message': 'Email and password required'}), 400
         
-        # Find user
         user = app.users_collection.find_one({'email': email})
         
         if not user:
             return jsonify({'success': False, 'message': 'Invalid email or password'}), 401
         
-        # Check password
         if pbkdf2_sha256.verify(password, user['password_hash']):
             token = jwt.encode(
                 {
@@ -147,42 +141,131 @@ def test_auth():
         }
     })
 
-# ============= REPORT ROUTES =============
+# ============= GEMINI AI FUNCTION =============
 
-# Temporary AI function (Abdullah will replace this)
-def generate_report(query):
-    """Temporary function - Abdullah will replace with AI"""
+def extract_json(text):
+    """Extract JSON from AI response"""
+    try:
+        start = text.find('{')
+        end = text.rfind('}') + 1
+        if start != -1 and end != 0:
+            return json.loads(text[start:end])
+        return {}
+    except:
+        return {}
+
+def generate_report_with_gemini(query):
+    """Generate report using Google Gemini AI"""
+    try:
+        api_key = os.getenv('GEMINI_API_KEY')
+        
+        if not api_key:
+            print("❌ GEMINI_API_KEY not found")
+            return get_fallback_report(query)
+        
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # Market Analysis
+        market_prompt = f"""You are a market research expert. Analyze this market: {query}
+        Return ONLY JSON in this exact format:
+        {{
+            "market_size": "estimate with context",
+            "growth_trends": ["trend1", "trend2", "trend3"],
+            "opportunities": ["opp1", "opp2", "opp3"],
+            "risks": ["risk1", "risk2", "risk3"],
+            "key_insight": "most important insight"
+        }}"""
+        
+        market_response = model.generate_content(market_prompt)
+        market_data = extract_json(market_response.text)
+        
+        # Competitor Analysis
+        competitor_prompt = f"""You are a competitive analyst. Identify competitors for: {query}
+        Return ONLY JSON in this exact format:
+        {{
+            "competitors": [
+                {{"name": "name", "strength": "strength", "weakness": "weakness", "position": "position"}}
+            ],
+            "gaps": ["gap1", "gap2"],
+            "differentiation": "how to stand out"
+        }}"""
+        
+        competitor_response = model.generate_content(competitor_prompt)
+        competitor_data = extract_json(competitor_response.text)
+        
+        # Audience Profile
+        audience_prompt = f"""You are a consumer psychologist. Profile audience for: {query}
+        Return ONLY JSON in this exact format:
+        {{
+            "demographics": {{"age_range": "", "location": "", "income": "", "profession": ""}},
+            "psychographics": {{"values": [], "motivations": [], "aspirations": []}},
+            "pain_points": [],
+            "buying_behavior": {{"discovery": [], "evaluation": [], "purchase": []}}
+        }}"""
+        
+        audience_response = model.generate_content(audience_prompt)
+        audience_data = extract_json(audience_response.text)
+        
+        # Content Strategy
+        content_prompt = f"""You are a content strategist. Create strategy for: {query}
+        Return ONLY JSON in this exact format:
+        {{
+            "platforms": ["platform1", "platform2"],
+            "content_pillars": ["pillar1", "pillar2", "pillar3"],
+            "post_ideas": ["idea1", "idea2", "idea3", "idea4", "idea5"],
+            "tone_of_voice": "description",
+            "content_mix": {{"video": "40%", "carousel": "30%", "short_form": "30%"}}
+        }}"""
+        
+        content_response = model.generate_content(content_prompt)
+        content_data = extract_json(content_response.text)
+        
+        return {
+            "market": market_data,
+            "competitors": competitor_data,
+            "audience": audience_data,
+            "content": content_data
+        }
+        
+    except Exception as e:
+        print(f"Gemini API error: {e}")
+        return get_fallback_report(query)
+
+def get_fallback_report(query):
+    """Fallback report when Gemini fails"""
     return {
         "market": {
-            "market_size": "Sample market size for: " + query,
-            "growth_trends": ["Trend 1", "Trend 2", "Trend 3"],
-            "opportunities": ["Opportunity 1", "Opportunity 2"],
-            "risks": ["Risk 1", "Risk 2"],
-            "key_insight": "This is a sample key insight"
+            "market_size": f"Market analysis for {query}",
+            "growth_trends": ["Growing demand", "Digital transformation", "Consumer awareness"],
+            "opportunities": ["Untapped segments", "Innovation gap", "Partnership potential"],
+            "risks": ["Competition", "Regulatory changes", "Economic factors"],
+            "key_insight": f"{query} shows strong growth potential"
         },
         "competitors": {
             "competitors": [
-                {"name": "Competitor A", "strength": "Strong brand", "weakness": "High price", "position": "Premium"}
+                {"name": "Competitor A", "strength": "Market presence", "weakness": "High pricing", "position": "Premium"}
             ],
-            "gaps": ["Gap 1", "Gap 2"],
-            "differentiation": "Stand out by offering better value"
+            "gaps": ["Better pricing", "More features", "Better support"],
+            "differentiation": "Focus on user experience and affordability"
         },
         "audience": {
-            "demographics": {"age_range": "25-40", "location": "Urban", "income": "Middle to high"},
-            "psychographics": {"values": ["Quality", "Innovation"], "motivations": ["Efficiency"]},
-            "pain_points": ["Pain point 1", "Pain point 2"],
-            "buying_behavior": {"discovery": ["Social media"], "evaluation": ["Reviews"]}
+            "demographics": {"age_range": "25-40", "location": "Urban areas", "income": "Middle to high", "profession": "Professionals"},
+            "psychographics": {"values": ["Quality", "Innovation"], "motivations": ["Efficiency"], "aspirations": ["Success"]},
+            "pain_points": ["Time consuming", "Complex solutions", "High costs"],
+            "buying_behavior": {"discovery": ["Social media"], "evaluation": ["Reviews"], "purchase": ["Online"]}
         },
         "content": {
-            "platforms": ["Instagram", "LinkedIn"],
-            "content_pillars": ["Education", "Inspiration"],
-            "post_ideas": ["Idea 1", "Idea 2", "Idea 3"],
+            "platforms": ["Instagram", "LinkedIn", "Twitter"],
+            "content_pillars": ["Education", "Inspiration", "How-to guides"],
+            "post_ideas": ["Tip 1", "Tip 2", "Tip 3", "Tip 4", "Tip 5"],
             "tone_of_voice": "Professional and friendly",
             "content_mix": {"video": "40%", "carousel": "30%", "short_form": "30%"}
         }
     }
 
-# Helper function to create report object
+# ============= REPORT ENDPOINTS =============
+
 def create_report_object(user_id, query, report_data):
     """Create a report document for MongoDB"""
     return {
@@ -195,11 +278,9 @@ def create_report_object(user_id, query, report_data):
         "created_at": datetime.datetime.utcnow()
     }
 
-# ============= REPORT ENDPOINTS =============
-
 @app.route('/api/reports/generate', methods=['POST'])
 def generate_report_endpoint():
-    """Generate a new report using AI"""
+    """Generate a new report using Gemini AI"""
     try:
         data = request.get_json()
         
@@ -211,11 +292,10 @@ def generate_report_endpoint():
         if not query:
             return jsonify({'success': False, 'message': 'Query is required'}), 400
         
-        # Call the AI function
-        report_data = generate_report(query)
+        # Call Gemini AI to generate report
+        report_data = generate_report_with_gemini(query)
         
         # Create report object
-        # TODO: Replace with actual user_id after auth
         temp_user_id = "temp_user_123"
         report = create_report_object(temp_user_id, query, report_data)
         
@@ -243,13 +323,10 @@ def generate_report_endpoint():
 def get_all_reports():
     """Get all reports for the user"""
     try:
-        # TODO: Replace with actual user_id from token
         temp_user_id = "temp_user_123"
         
-        # Get reports from database
         reports = list(app.db.reports.find({'user_id': temp_user_id}).sort('created_at', -1))
         
-        # Convert ObjectId to string
         for report in reports:
             report['_id'] = str(report['_id'])
             report['created_at'] = report['created_at'].isoformat()
@@ -266,10 +343,8 @@ def get_all_reports():
 def get_single_report(report_id):
     """Get a single report by ID"""
     try:
-        # TODO: Replace with actual user_id from token
         temp_user_id = "temp_user_123"
         
-        # Get report from database
         report = app.db.reports.find_one({
             '_id': ObjectId(report_id),
             'user_id': temp_user_id
@@ -278,7 +353,6 @@ def get_single_report(report_id):
         if not report:
             return jsonify({'success': False, 'message': 'Report not found'}), 404
         
-        # Convert ObjectId to string
         report['_id'] = str(report['_id'])
         report['created_at'] = report['created_at'].isoformat()
         
@@ -343,5 +417,6 @@ if __name__ == '__main__':
     print(f"💾 Database: {'✅ Connected' if app.db is not None else '❌ Disconnected'}")
     print("📝 Auth endpoints: /api/auth/register, /api/auth/login")
     print("📝 Reports endpoints: /api/reports/generate, /api/reports, /api/reports/:id")
+    print("🤖 Gemini AI: Enabled")
     print("="*50)
     app.run(debug=True, host='0.0.0.0', port=port)
